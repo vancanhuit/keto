@@ -9,6 +9,7 @@ import (
 	"github.com/gobuffalo/pop/v6"
 
 	"github.com/ory/keto/internal/driver/config"
+	"github.com/ory/keto/internal/uuidmapping"
 
 	"github.com/spf13/cobra"
 
@@ -36,6 +37,7 @@ type (
 		x.WriterProvider
 
 		relationtuple.ManagerProvider
+		uuidmapping.ManagerProvider
 		expand.EngineProvider
 		check.EngineProvider
 		persistence.Migrator

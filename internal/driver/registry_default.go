@@ -33,6 +33,7 @@ import (
 	grpcHealthV1 "google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/ory/keto/internal/driver/config"
+	"github.com/ory/keto/internal/uuidmapping"
 
 	"github.com/ory/herodot"
 	"github.com/ory/x/healthx"
@@ -161,6 +162,13 @@ func (r *RegistryDefault) Writer() herodot.Writer {
 }
 
 func (r *RegistryDefault) RelationTupleManager() relationtuple.Manager {
+	if r.p == nil {
+		panic("no relation tuple manager, but expected to have one")
+	}
+	return r.p
+}
+
+func (r *RegistryDefault) UUIDMappingManager() uuidmapping.Manager {
 	if r.p == nil {
 		panic("no relation tuple manager, but expected to have one")
 	}
