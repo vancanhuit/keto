@@ -4,16 +4,13 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/ory/keto/ketoctx"
-
-	"github.com/ory/x/popx"
-
-	"github.com/ory/x/flagx"
-
 	"github.com/ory/x/cmdx"
+	"github.com/ory/x/flagx"
+	"github.com/ory/x/popx"
 	"github.com/spf13/cobra"
 
-	"github.com/ory/keto/internal/driver"
+	"github.com/ory/keto/cmd/helpers"
+	"github.com/ory/keto/ketoctx"
 )
 
 func newDownCmd(opts []ketoctx.Option) *cobra.Command {
@@ -30,7 +27,7 @@ func newDownCmd(opts []ketoctx.Option) *cobra.Command {
 				return fmt.Errorf("malformed argument %s for <steps>: %+v", args[0], err)
 			}
 
-			reg, err := driver.NewDefaultRegistry(cmd.Context(), cmd.Flags(), true, opts...)
+			reg, err := helpers.NewRegistry(cmd, opts)
 			if err != nil {
 				return err
 			}
