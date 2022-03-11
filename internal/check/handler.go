@@ -3,9 +3,10 @@ package check
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/url"
 
-	"github.com/ory/herodot"
 	"github.com/pkg/errors"
 
 	acl "github.com/ory/keto/proto/ory/keto/acl/v1alpha1"
@@ -39,8 +40,10 @@ func NewHandler(d handlerDependencies) *Handler {
 const RouteBase = "/check"
 
 func (h *Handler) RegisterReadRoutes(r *x.ReadRouter) {
-	r.GET(RouteBase, h.getCheck)
-	r.POST(RouteBase, h.postCheck)
+	r.GET(RouteBase, h.getCheckMirrorStatus)
+	r.GET(RouteBase+"-sdk", h.getCheckNoStatus)
+	r.POST(RouteBase, h.postCheckMirrorStatus)
+	r.POST(RouteBase+"-sdk", h.postCheckNoStatus)
 }
 
 func (h *Handler) RegisterWriteRoutes(_ *x.WriteRouter) {}
@@ -51,7 +54,7 @@ func (h *Handler) RegisterReadGRPC(s *grpc.Server) {
 
 func (h *Handler) RegisterWriteGRPC(_ *grpc.Server) {}
 
-// Represents the response for a check request.
+// RESTResponse represents the response for a check request.
 //
 // The content of the allowed field is mirrored in the HTTP status code.
 //
@@ -70,7 +73,7 @@ type getCheckRequest struct {
 	MaxDepth int `json:"max-depth"`
 }
 
-// swagger:route GET /check read getCheck
+// swagger:route GET /check-sdk read getCheck
 //
 // Check a relation tuple
 //
@@ -89,37 +92,45 @@ type getCheckRequest struct {
 //       400: genericError
 //       403: getCheckResponse
 //       500: genericError
-func (h *Handler) getCheck(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	maxDepth, err := x.GetMaxDepthFromQuery(r.URL.Query())
+func (h *Handler) getCheckNoStatus(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	allowed, err := h.getCheck(r.Context(), r.URL.Query())
 	if err != nil {
-		h.d.Writer().WriteError(w, r, herodot.ErrBadRequest.WithError(err.Error()))
+		h.d.Writer().WriteError(w, r, err)
 		return
 	}
+	h.d.Writer().Write(w, r, &RESTResponse{Allowed: allowed})
+}
 
-	tuple, err := (&relationtuple.InternalRelationTuple{}).FromURLQuery(r.URL.Query())
-	if errors.Is(err, relationtuple.ErrNilSubject) {
-		h.d.Writer().WriteError(w, r, herodot.ErrBadRequest.WithReason("Subject has to be specified."))
-		return
-	} else if err != nil {
-		h.d.Writer().WriteError(w, r, herodot.ErrBadRequest.WithError(err.Error()))
-		return
-	}
-
-	allowed, err := h.d.PermissionEngine().SubjectIsAllowed(r.Context(), tuple, maxDepth)
+func (h *Handler) getCheckMirrorStatus(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	allowed, err := h.getCheck(r.Context(), r.URL.Query())
 	if err != nil {
 		h.d.Writer().WriteError(w, r, err)
 		return
 	}
 
 	if allowed {
-		h.d.Writer().WriteCode(w, r, http.StatusOK, &RESTResponse{Allowed: true})
+		h.d.Writer().Write(w, r, &RESTResponse{Allowed: allowed})
 		return
 	}
 
-	h.d.Writer().WriteCode(w, r, http.StatusForbidden, &RESTResponse{Allowed: false})
+	h.d.Writer().WriteCode(w, r, http.StatusForbidden, &RESTResponse{Allowed: allowed})
 }
 
-// swagger:route POST /check read postCheck
+func (h *Handler) getCheck(ctx context.Context, q url.Values) (bool, error) {
+	maxDepth, err := x.GetMaxDepthFromQuery(q)
+	if err != nil {
+		return false, err
+	}
+
+	tuple, err := (&relationtuple.InternalRelationTuple{}).FromURLQuery(q)
+	if err != nil {
+		return false, err
+	}
+
+	return h.d.PermissionEngine().SubjectIsAllowed(ctx, tuple, maxDepth)
+}
+
+// swagger:route POST /check-sdk read postCheck
 //
 // Check a relation tuple
 //
@@ -138,31 +149,42 @@ func (h *Handler) getCheck(w http.ResponseWriter, r *http.Request, _ httprouter.
 //       400: genericError
 //       403: getCheckResponse
 //       500: genericError
-func (h *Handler) postCheck(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	maxDepth, err := x.GetMaxDepthFromQuery(r.URL.Query())
+func (h *Handler) postCheckNoStatus(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	allowed, err := h.postCheck(r.Context(), r.Body, r.URL.Query())
 	if err != nil {
-		h.d.Writer().WriteError(w, r, herodot.ErrBadRequest.WithError(err.Error()))
+		h.d.Writer().WriteError(w, r, err)
 		return
 	}
+	h.d.Writer().Write(w, r, &RESTResponse{Allowed: allowed})
+}
 
-	var tuple relationtuple.InternalRelationTuple
-	if err := json.NewDecoder(r.Body).Decode(&tuple); err != nil {
-		h.d.Writer().WriteError(w, r, errors.WithStack(herodot.ErrBadRequest.WithReasonf("Unable to decode JSON payload: %s", err)))
-		return
-	}
-
-	allowed, err := h.d.PermissionEngine().SubjectIsAllowed(r.Context(), &tuple, maxDepth)
+func (h *Handler) postCheckMirrorStatus(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	allowed, err := h.postCheck(r.Context(), r.Body, r.URL.Query())
 	if err != nil {
 		h.d.Writer().WriteError(w, r, err)
 		return
 	}
 
 	if allowed {
-		h.d.Writer().WriteCode(w, r, http.StatusOK, &RESTResponse{Allowed: true})
+		h.d.Writer().Write(w, r, &RESTResponse{Allowed: allowed})
 		return
 	}
 
-	h.d.Writer().WriteCode(w, r, http.StatusForbidden, &RESTResponse{Allowed: false})
+	h.d.Writer().WriteCode(w, r, http.StatusForbidden, &RESTResponse{Allowed: allowed})
+}
+
+func (h *Handler) postCheck(ctx context.Context, body io.Reader, query url.Values) (bool, error) {
+	maxDepth, err := x.GetMaxDepthFromQuery(query)
+	if err != nil {
+		return false, err
+	}
+
+	var tuple relationtuple.InternalRelationTuple
+	if err := json.NewDecoder(body).Decode(&tuple); err != nil {
+		return false, errors.WithStack(err)
+	}
+
+	return h.d.PermissionEngine().SubjectIsAllowed(ctx, &tuple, maxDepth)
 }
 
 func (h *Handler) Check(ctx context.Context, req *acl.CheckRequest) (*acl.CheckResponse, error) {
