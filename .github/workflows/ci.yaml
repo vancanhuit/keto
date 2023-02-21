@@ -27,7 +27,7 @@ jobs:
         run: npm ci && npm run format:check
       - run: go list -json > go.list
       - name: Run nancy
-        uses: sonatype-nexus-community/nancy-github-action@v1.0.2
+        uses: sonatype-nexus-community/nancy-github-action@v1.0.3
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v3
         env:
